@@ -13,6 +13,8 @@ local item_name = nil
 local item_value = nil
 local item_user = nil
 
+local workspace_type = cjson.decode(os.getenv("workspace_type"))
+
 local url_count = 0
 local tries = 0
 local downloaded = {}
@@ -32,7 +34,8 @@ local retry_url = false
 local is_initial_url = true
 
 local item_patterns = {
-  ["^https?://api%.bitbucket%.org/2%.0/repositories%?after=([0-9][0-9][0-9][0-9]%-[0-9][0-9]%-[0-9][0-9]T[0-9][0-9]%%3A[03])"] = "repo-disco"
+  ["^https?://api%.bitbucket%.org/2%.0/repositories%?after=([0-9][0-9][0-9][0-9]%-[0-9][0-9]%-[0-9][0-9]T[0-9][0-9]%%3A[03])"] = "repo-disco",
+  ["^https?://api%.bitbucket%.org/2%.0/workspaces/([%-%._0-9a-zA-Z%%]+)$"] = "workspace"
 }
 
 abort_item = function(item)
@@ -73,7 +76,7 @@ end
 
 discover_item = function(target, item)
   if not target[item] then
---print("discovered", item)
+--print("discovered", target, item)
     target[item] = true
     return true
   end
@@ -84,6 +87,7 @@ find_item = function(url)
   if ids[url] then
     return nil
   end
+  url = string.gsub(url, "%%7[BD]", "|")
   local value = nil
   local type_ = nil
   for pattern, name in pairs(item_patterns) do
@@ -94,10 +98,22 @@ find_item = function(url)
     end
   end
   if value and type_ then
+    if type_ == "workspace" then
+      type_ = workspace_type[value]
+      assert(type_)
+    end
     return {
       ["value"]=value,
       ["type"]=type_
     }
+  end
+end
+
+finalize_item = function()
+  if item_type == "workspace-check"
+    and not context["recent_update"] then
+    print("Workspace did not have a recent update, queueing.")
+    discover_item(discovered_items, "workspace:" .. item_value)
   end
 end
 
@@ -114,6 +130,9 @@ set_item = function(url)
       newcontext["last_num"] = tonumber(last_num)
     end
     if new_item_name ~= item_name then
+      if item_name then
+        finalize_item()
+      end
       ids = {}
       context = newcontext
       item_value = new_item_value
@@ -149,13 +168,16 @@ allowed = function(url, parenturl)
     return true
   end
 
+  url = string.gsub(url, "%%7[BD]", "|")
+
   local skip = false
   for pattern, type_ in pairs(item_patterns) do
     match = string.match(url, pattern)
     if match then
       local new_item = type_ .. ":" .. match
       if new_item ~= item_name then
-        if item_type ~= "repo-disco" then
+        if item_type ~= "repo-disco"
+          and not string.match(type_, "^workspace") then
           discover_item(discovered_items, new_item)
           skip = true
         end
@@ -185,7 +207,7 @@ allowed = function(url, parenturl)
   end
 
   for _, pattern in pairs({
-    "([0-9a-zA-Z%-]+)"
+    "([%-%._0-9a-zA-Z%%]+)"
   }) do
     for s in string.gmatch(url, pattern) do
       if ids[string.lower(s)] then
@@ -241,6 +263,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   local html = nil
   local json = nil
 
+  local post_data = nil
+
   downloaded[url] = true
 
   if abortgrab then
@@ -282,16 +306,36 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     while string.find(url_, "&amp;") do
       url_ = string.gsub(url_, "&amp;", "&")
     end
-    if not processed(url_)
-      and not processed(url_ .. "/")
+    if not processed(url_ .. tostring(post_data))
       and allowed(url_, origurl) then
       local headers = {}
-      table.insert(urls, {
-        url=url_,
-        headers=headers
-      })
-      addedtolist[url_] = true
-      addedtolist[url] = true
+      if post_data then
+        headers["Content-Type"] = "application/json"
+        headers["X-API-KEY"] = "e68da679-ff2b-4bae-913d-22d58892baa8"
+        headers["X-Client-Name"] = "feature-gate-js-client"
+        headers["X-Client-Version"] = "5.3.0"
+      end
+      if string.match(url, "^https?://bitbucket%.org/!api/") then
+        headers["Accept"] = "application/json"
+        headers["Content-Type"] = "application/json"
+        headers["X-Bitbucket-Frontend"] = "frontbucket"
+        headers["X-CSRFToken"] = "ublzwclA6gzbpBKjW542uLBDkpDV5jUr"
+        headers["X-Requested-With"] = "XMLHttpRequest"
+      end
+      if post_data then
+        table.insert(urls, {
+          url=url_,
+          headers=headers,
+          body_data=post_data,
+          method="POST"
+        })
+      else
+        table.insert(urls, {
+          url=url_,
+          headers=headers
+        })
+      end
+      addedtolist[url_ .. tostring(post_data)] = true
     end
   end
 
@@ -418,17 +462,127 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
   end
 
+  local function check_post(url, d)
+    post_data = d
+    check(url)
+    post_data = nil
+  end
+
   if allowed(url)
     and status_code < 300
     and item_type ~= "asset" then
     html = read_file(file)
-    if string.match(url, "^https?://api%.bitbucket%.org/2%.0/repositories%?after=") then
+    if string.match(url, "^https?://api%.bitbucket%.org/2%.0/")
+      or string.match(url, "^https?://api%.bitbucket%.org/!api/2%.0/") then
       json = cjson.decode(html)
-      extract_from_api(json["values"])
-      assert(get_count(json["values"]) == json["pagelen"])
+      extract_from_api(json)
+      if json["values"] then
+        if type(json["values"][1]) == "string"
+          and string.match(json["values"][1], "Upgrade to a Standard or Premium plan") then
+          return urls
+        end
+        if not string.match(url, "/snippets/") then
+          local count = get_count(json["values"])
+          assert(count == json["size"] or count == json["pagelen"])
+        end
+      end
       if json["next"] then
         check(json["next"])
       end
+    end
+    if string.match(url, "^https?://api%.bitbucket%.org/2%.0/repositories%?after=") then
+      if json["next"] then
+        check(json["next"])
+      end
+    end
+    if string.match(url, "^https?://api%.bitbucket%.org/2%.0/workspaces/[^/]+$") then
+      context["uuid"] = string.match(json["uuid"], "^{(.+)}$")
+      ids[context["uuid"]] = true
+      assert(context["uuid"])
+      check("https://api.bitbucket.org/2.0/workspaces/" .. json["uuid"])
+      check("https://api.bitbucket.org/2.0/workspaces/" .. item_value .. "/projects")
+      check("https://api.bitbucket.org/2.0/repositories/" .. item_value)
+      check("https://api.bitbucket.org/2.0/snippets/" .. item_value)
+      if item_type == "workspace" then
+        check(json["links"]["avatar"]["href"])
+        check("https://bitbucket.org/workspaces/" .. item_value .. "/avatar/")
+      end
+      return urls
+    end
+    if item_type == "workspace-check" and (
+      string.match(url, "/2%.0/workspaces/")
+      or string.match(url, "/2%.0/repositories/")
+      or string.match(url, "/2%.0/snippets/")
+    ) then
+      if not context["recent_update"] then
+        for _, d in pairs(json["values"]) do
+          for _, k in pairs({"created_on", "updated_on"}) do
+            if d[k] then
+              local yearmonth = string.match(d[k], "^([0-9][0-9][0-9][0-9]%-[0-9][0-9])")
+              if yearmonth > "2025-08" then
+                print("Found a recent update at " .. yearmonth .. "!")
+                context["recent_update"] = true
+              end
+            end
+          end
+        end
+      end
+    end
+    if item_type == "workspace" then
+      check("https://bitbucket.org/" .. item_value .. "/")
+      check("https://bitbucket.org/" .. item_value .. "/workspace/overview")
+      check("https://bitbucket.org/" .. item_value .. "/workspace/repositories/")
+      check("https://bitbucket.org/" .. item_value .. "/workspace/projects/")
+      check("https://bitbucket.org/" .. item_value .. "/workspace/pull-requests/")
+    end
+    if string.match(url, "^https?://[^/]+/[^/]+/workspace/repositories/$") then
+      check_post(
+        "https://api.atlassian.com/flags/api/v2/frontend/experimentValues",
+        cjson.encode({
+          ["identifiers"] = {
+            ["bitbucketWorkspaceId"] = json["uuid"]
+          },
+          ["customAttributes"] = {
+            ["atlassian_staff"] = false,
+            ["bitbucket_team"] = false
+          },
+          ["targetApp"] = "bitbucket-cloud_web"
+        })
+      )
+      check("https://bitbucket.org/!api/internal/menu/workspace/" .. item_value)
+      check("https://bitbucket.org/!api/2.0/repositories/" .. item_value .. "?page=1&pagelen=25&sort=-updated_on&q=&fields=-values.owner%2C-values.workspace")
+      check("https://bitbucket.org/!api/2.0/workspaces/" .. item_value .. "/projects/?sort=name&fields=-values.owner%2C-values.workspace")
+    end
+    if string.match(url, "^https?://[^/]+/[^/]+/workspace/pull%-requests/$") then
+      check("https://bitbucket.org/" .. item_value .. "/workspace/overview/?state=section")
+      check("https://bitbucket.org/!api/internal/workspaces/" .. item_value .. "/pullrequests/?fields=-values.closed_by%2C-values.description%2C-values.summary%2C-values.rendered%2C-values.properties%2C-values.reason%2C-values.reviewers%2C-values.participants.user.nickname%2C%2Bvalues.destination.branch.name%2C%2Bvalues.destination.repository.full_name%2C%2Bvalues.destination.repository.name%2C%2Bvalues.destination.repository.uuid%2C%2Bvalues.destination.repository.full_name%2C%2Bvalues.destination.repository.name%2C%2Bvalues.destination.repository.links.self.href%2C%2Bvalues.destination.repository.links.html.href%2C%2Bvalues.source.branch.name%2C%2Bvalues.source.repository.full_name%2C%2Bvalues.source.repository.name%2C%2Bvalues.source.repository.uuid%2C%2Bvalues.source.repository.full_name%2C%2Bvalues.source.repository.name%2C%2Bvalues.source.repository.links.self.href%2C%2Bvalues.source.repository.links.html.href%2C%2Bvalues.source.commit.hash&page=1&pagelen=20&q=%28%28%20state%3D%22OPEN%22%20AND%20draft%3Dfalse%20%29%20OR%20%28%20state%3D%22OPEN%22%20AND%20draft%3Dtrue%20%29%29")
+      check("https://bitbucket.org/!api/internal/workspaces/" .. item_value .. "/pullrequests/?fields=-values.closed_by%2C-values.description%2C-values.summary%2C-values.rendered%2C-values.properties%2C-values.reason%2C-values.reviewers%2C-values.participants.user.nickname%2C%2Bvalues.destination.branch.name%2C%2Bvalues.destination.repository.full_name%2C%2Bvalues.destination.repository.name%2C%2Bvalues.destination.repository.uuid%2C%2Bvalues.destination.repository.full_name%2C%2Bvalues.destination.repository.name%2C%2Bvalues.destination.repository.links.self.href%2C%2Bvalues.destination.repository.links.html.href%2C%2Bvalues.source.branch.name%2C%2Bvalues.source.repository.full_name%2C%2Bvalues.source.repository.name%2C%2Bvalues.source.repository.uuid%2C%2Bvalues.source.repository.full_name%2C%2Bvalues.source.repository.name%2C%2Bvalues.source.repository.links.self.href%2C%2Bvalues.source.repository.links.html.href%2C%2Bvalues.source.commit.hash&page=1&pagelen=20&q=")
+      check("https://bitbucket.org/!api/2.0/workspaces/" .. item_value .. "/projects/?page=1&q=&sort=name&fields=-values.workspace%2C-values.owner")
+    end
+    if string.match(url, "/!api/2%.0/repositories/[^/%?]+%?")
+      or string.match(url, "/!api/internal/workspaces/[^/]+/pullrequests/%?")
+      or string.match(url, "/!api/2%.0/workspaces/[^/]+/projects/%?") then
+      local page = string.match(url, "[%?&]page=([0-9]+)")
+      if page then
+        local path = string.match(url, "/!api/2%.0/([^/]+)")
+          or string.match(url, "/workspaces/[^/]+/([^/]+)/")
+        if path == "repositories"
+          or path == "projects" then
+          check("https://bitbucket.org/" .. item_value .. "/workspace/" .. path .. "/?page=" .. page)
+        elseif path == "pullrequests" then
+          local q = string.match(url, "[%?&]q=([^&]*)")
+          local state = ({
+            [""] = "ALL",
+            ["%28%28%20state%3D%22OPEN%22%20AND%20draft%3Dfalse%20%29%20OR%20%28%20state%3D%22OPEN%22%20AND%20draft%3Dtrue%20%29%29)"] = "DRAFT%2BOPEN",
+          })[q]
+          local newurl = "https://bitbucket.org/" .. item_value .. "/workspace/pull-requests/?state=" .. state
+          check(newurl)
+          check(newurl .. "&page=" .. page)
+        end
+      end
+    end
+    if item_type == "workspace-check" then
+      return urls
     end
     for newurl in string.gmatch(string.gsub(html, "&[qQ][uU][oO][tT];", '"'), '([^"]+)') do
       checknewurl(newurl)
@@ -466,7 +620,9 @@ wget.callbacks.write_to_warc = function(url, http_stat)
     error("No item name found.")
   end
   is_initial_url = false
-  if http_stat["statcode"] ~= 200 then
+  if http_stat["statcode"] ~= 200
+    and http_stat["statcode"] ~= 301
+    and http_stat["statcode"] ~= 302 then
     retry_url = true
     return false
   end
@@ -555,6 +711,8 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
 end
 
 wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total_downloaded_bytes, total_download_time)
+  finalize_item()
+
   local function submit_backfeed(items, key)
     local tries = 0
     local maxtries = 5
@@ -587,6 +745,7 @@ wget.callbacks.finish = function(start_time, end_time, wall_time, numurls, total
   file:close()
   for key, data in pairs({
     ["bitbucket2-stash-dcysax2j04ubqz0m?shard=stashdisco"] = discovered_stash_items,
+    ["bitbucket2-gs2osbgwc5breiqj"] = discovered_items,
     ["urls-4e61n66e8tkc1gzz"] = discovered_outlinks
   }) do
     print("queuing for", string.match(key, "^(.+)%-"))

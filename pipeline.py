@@ -2,6 +2,7 @@
 import datetime
 from distutils.version import StrictVersion
 import hashlib
+import json
 import os
 import random
 from seesaw.config import realize, NumberConfigValue
@@ -76,7 +77,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260107.01'
+VERSION = '20260108.01'
 USER_AGENT = 'Mozilla/5.0 (X11; Linux i686; rv:124.0) Gecko/20100101 Firefox/124.0'
 TRACKER_ID = 'bitbucket2'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -258,6 +259,8 @@ class WgetArgs(object):
                 concurrency = 2
         item['concurrency'] = str(concurrency)
 
+        workspace_type = {}
+
         for item_name in item['item_name'].split('\0'):
             wget_args.extend(['--warc-header', 'x-wget-at-project-item-name: '+item_name])
             wget_args.append('item-name://'+item_name)
@@ -265,7 +268,10 @@ class WgetArgs(object):
             if item_type == 'repo-disco':
                 wget_args.extend(['--warc-header', 'bitbucket-repository-api-after: '+item_value])
                 wget_args.append('https://api.bitbucket.org/2.0/repositories?after={}0%3A00.000000%2B00%3A00'.format(item_value))
-            #elif item_type == 'workspace':
+            elif item_type in ('workspace-check', 'workspace'):
+                wget_args.extend(['--warc-header', 'bitbucket-{}: {}'.format(item_type, item_value)])
+                wget_args.append('https://api.bitbucket.org/2.0/workspaces/'+item_value)
+                workspace_type[item_value] = item_type
             #elif item_type == 'repo':
             #elif item_type == 'asset':
             #    url = 'https://' + item_value
@@ -273,6 +279,8 @@ class WgetArgs(object):
             #    wget_args.append(url)
             else:
                 raise Exception('Unknown item')
+
+        item['workspace_type'] = json.dumps(workspace_type)
 
         item['item_name_newline'] = item['item_name'].replace('\0', '\n')
 
@@ -313,7 +321,8 @@ pipeline = Pipeline(
             'item_dir': ItemValue('item_dir'),
             'item_names': ItemValue('item_name_newline'),
             'warc_file_base': ItemValue('warc_file_base'),
-            'concurrency': ItemValue('concurrency')
+            'concurrency': ItemValue('concurrency'),
+            'workspace_type': ItemValue('workspace_type')
         }
     ),
     SetBadUrls(),
