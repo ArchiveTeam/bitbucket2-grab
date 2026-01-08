@@ -483,7 +483,11 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
         if not string.match(url, "/snippets/") then
           local count = get_count(json["values"])
-          assert(count == json["size"] or count == json["pagelen"])
+          assert(
+            count == json["size"]
+            or count == json["pagelen"]
+            or count == (json["size"] % json["pagelen"])
+          )
         end
       end
       if json["next"] then
