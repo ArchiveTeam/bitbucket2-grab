@@ -232,11 +232,10 @@ allowed = function(url, parenturl)
               type_ ~= "repo"
               or (
                 not string.match(match, "^workspaces/")
+                and not string.match(match, "^account/")
+                and not string.match(match, "^site/")
+                and not string.match(match, "^gateway/")
                 and not string.match(match, "/workspace$")
-                and match ~= "account/signin"
-                and match ~= "gateway/api"
-                and match ~= "site/attributions"
-                and match ~= "account/signup"
               )
             ) then
             discover_item(discovered_items, new_item)
