@@ -77,11 +77,11 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260108.03'
+VERSION = '20260110.01'
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0'
 TRACKER_ID = 'bitbucket2'
 TRACKER_HOST = 'legacy-api.arpa.li'
-MULTI_ITEM_SIZE = 100
+MULTI_ITEM_SIZE = 1
 
 
 ###########################################################################
@@ -272,6 +272,9 @@ class WgetArgs(object):
                 wget_args.extend(['--warc-header', 'bitbucket-{}: {}'.format(item_type, item_value)])
                 wget_args.append('https://api.bitbucket.org/2.0/workspaces/'+item_value)
                 workspace_type[item_value] = item_type
+            elif item_type == 'repo':
+                wget_args.extend(['--warc-header', 'bitbucket-repository: {}'+item_value])
+                wget_args.append('https://api.bitbucket.org/2.0/repositories/'+item_value)
             #elif item_type == 'repo':
             #elif item_type == 'asset':
             #    url = 'https://' + item_value
