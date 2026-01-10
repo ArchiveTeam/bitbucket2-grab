@@ -41,6 +41,8 @@ local item_patterns = {
 
 local disco_patterns = {
   ["^https?://api%.bitbucket%.org/2%.0/repositories/([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)"] = "repo",
+  ["^https?://bitbucket%.org/!api/2%.0/repositories/([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)"] = "repo",
+  ["^https?://bitbucket%.org/!api/internal/repositories/([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)"] = "repo",
   ["^https?://bitbucket%.org/([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)"] = "repo"
 }
 
