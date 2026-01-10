@@ -208,7 +208,8 @@ allowed = function(url, parenturl)
       or string.match(url, api .. "repositories/[^/]+/[^/]+/pullrequests/[0-9]+/approve")
       or string.match(url, api .. "repositories/[^/]+/[^/]+/pullrequests/[0-9]+/merge")
       or string.match(url, api .. "repositories/[^/]+/[^/]+/pullrequests/[0-9]+/statuses")
-      or string.match(url, api .. "repositories/[^/]+/[^/]+/pullrequests/[0-9]+/request%-changes") then
+      or string.match(url, api .. "repositories/[^/]+/[^/]+/pullrequests/[0-9]+/request%-changes")
+      or string.match(url, api .. "workspaces/[^/]+/members") then
       return false
     end
   end
@@ -224,7 +225,14 @@ allowed = function(url, parenturl)
         local new_item = type_ .. ":" .. match
         if new_item ~= item_name then
           if item_type ~= "repo-disco"
-            and not string.match(type_, "^workspace") then
+            and not string.match(type_, "^workspace")
+            and (
+              type_ ~= "repo"
+              or (
+                not string.match(new_item, "^workspaces/")
+                and not string.match(new_item, "/workspace$")
+              )
+            ) then
             discover_item(discovered_items, new_item)
             skip = true
           end
@@ -581,7 +589,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     and item_type ~= "asset" then
     html = read_file(file)
     if string.match(url, "^https?://api%.bitbucket%.org/2%.0/")
-      or string.match(url, "^https?://api%.bitbucket%.org/!api/2%.0/") then
+      or string.match(url, "^https?://api%.bitbucket%.org/!api/")
+      or string.match(url, "^https?://bitbucket%.org/!api/") then
       json = cjson.decode(html)
       extract_from_api(json)
       if json["values"] then
@@ -866,6 +875,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           local state = ({
             [""] = "ALL",
             ["%28%28%20state%3D%22OPEN%22%20AND%20draft%3Dfalse%20%29%20OR%20%28%20state%3D%22OPEN%22%20AND%20draft%3Dtrue%20%29%29)"] = "DRAFT%2BOPEN",
+            ["%28%28%20state%3D%22OPEN%22%20AND%20draft%3Dfalse%20%29%20OR%20%28%20state%3D%22OPEN%22%20AND%20draft%3Dtrue%20%29%29"] = "DRAFT%2BOPEN",
           })[q]
           local newurl = "https://bitbucket.org/" .. item_value .. "/workspace/pull-requests/?state=" .. state
           check(newurl)
