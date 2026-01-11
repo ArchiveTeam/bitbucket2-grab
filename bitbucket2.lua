@@ -182,6 +182,7 @@ allowed = function(url, parenturl)
 
   if string.match(url, "%.git$")
     or string.match(url, "%?q=project%.key=$")
+    or string.match(url, "^https?://bitbucket%.org/account/sign")
     or string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/commits/")
     or string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/packages/")
     or string.match(url, "^https?://api%.bitbucket%.org/[^/]+/[^/]+/src/[0-9a-f]+/&$")
@@ -236,6 +237,7 @@ allowed = function(url, parenturl)
                 and not string.match(match, "^site/")
                 and not string.match(match, "^gateway/")
                 and not string.match(match, "/workspace$")
+                and not string.match(match, "/languages$")
               )
             ) then
             discover_item(discovered_items, new_item)
@@ -605,7 +607,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         end
         if not string.match(url, "/snippets")
           and not string.match(url, "/commits")
-          and not string.match(url, "/activity") then
+          and not string.match(url, "/activity")
+          and not string.match(url, "/changesets") then
           local count = get_count(json["values"])
           assert(
             count == json["size"]
