@@ -181,8 +181,28 @@ allowed = function(url, parenturl)
   end
 
   if string.match(url, "%.git$")
+    or string.match(url, "%.git/[a-z]+$")
     or string.match(url, "%?q=project%.key=$")
+    or string.match(url, "/comments/configure")
     or string.match(url, "^https?://bitbucket%.org/account/sign")
+    or string.match(url, "^https?://bitbucket%.org/site/oauth2/access_token$")
+    or string.match(url, "^https?://bitbucket%.org/gateway/api/")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/repositories/[^/]+/[^/]+/forge/menu%-items/?$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/forge/menu%-items/?$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/stats/pr%-cycle%-time%?")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/packages/workspaces/[^/]+/availability$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/user/permissions/?$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/commits/statuses$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/plan$")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/workspaces/[^/]+/jira/sites%?")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/repositories/[^/]+/[^/]+/packages/containers%?")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/repositories/[^/]+/[^/]+/jira/sites")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/repositories/[^/]+/[^/]+/jira/projects")
+    or string.match(url, "^https?://bitbucket%.org/!api/internal/repositories/[^/]+/[^/]+/pullrequests/[0-9]+/jira/issues%?")
+    or string.match(url, "/issues/[0-9]+/vote$")
+    or string.match(url, "/issues/[0-9]+/watch$")
+    or string.match(url, "/issues/[0-9]+/configure$")
+    or string.match(url, "/repositories/[^/]+/[^/]+/diffstat/[^/]+/[^/:]+:[0-9a-f]+%?")
     or string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/commits/")
     or string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/packages/")
     or string.match(url, "^https?://api%.bitbucket%.org/[^/]+/[^/]+/src/[0-9a-f]+/&$")
@@ -600,6 +620,25 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     return false
   end
 
+  local function check_iframe(url)
+    if string.match(url, "[%?&]iframe=true")
+      and string.match(url, "[%?&]spa=0") then
+      return check(url)
+    end
+    local newurl = url
+    for _, param in pairs({"iframe=true", "spa=0"}) do
+      if not string.match(newurl, "[%?&]" .. param) then
+        if string.match(newurl, "%?") then
+          newurl = newurl .. "&"
+        else
+          newurl = newurl .. "?"
+        end
+        newurl = newurl .. param
+      end
+    end
+    return check(newurl)
+  end
+
   if allowed(url)
     and status_code < 300
     and item_type ~= "asset" then
@@ -629,6 +668,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if json["next"] then
         check(json["next"])
       end
+      local path = string.match(url, "^https?://api%.bitbucket%.org/2%.0/(.+)$")
+        or string.match(url, "^https?://bitbucket%.org/!api/2%.0/(.+)$")
+      if path then
+        check("https://bitbucket.org/!api/2.0/" .. path)
+        check("https://api.bitbucket.org/2.0/" .. path)
+      end
     end
 
     -- repo
@@ -642,7 +687,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         context["state"] = cjson.decode(string.match(html, "window%.__initial_state__%s*=%s*({.-});"))
         context["hash"] = context["state"]["repository"]["source"]["section"]["hash"]
         context["user_uuid"] = context["state"]["global"]["targetUser"]["uuid"]
-        check("https://bitbucket.org/" .. item_value .. "/src/" .. context["state"]["repository"]["source"]["section"]["ref"]["name"])
+        context["main_branch"] = context["state"]["repository"]["source"]["section"]["ref"]["name"]
+        check("https://bitbucket.org/" .. item_value .. "/src/" .. context["main_branch"])
       end
       check("https://bitbucket.org/" .. item_value .. ".git/info/refs?service=git-upload-pack")
       if context["hash"] then
@@ -651,7 +697,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           "",
           "src",
           "src?state=view",
-          "src/master",
+          "src/" .. context["main_branch"],
           "commits/",
           "branches/",
           "pull-requests/",
@@ -659,10 +705,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           "packages/containers/",
           "pipelines/",
           "deployments/",
-          "jira/",
-          "jira/?state=view",
-          "security/",
-          "security/?state=view",
+          --"jira/",
+          --"jira/?state=view",
+          --"security/",
+          --"security/?state=view",
           "downloads/",
           "downloads/?iframe=true&spa=0",
           "downloads/?tab=tags",
@@ -678,11 +724,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           "pipelines/?page=1&pagelen=20&sort=-created_on&fields=%2Bvalues.target.commit.message%2C%2Bvalues.target.selector.type%2Bvalues.target.selector.pattern%2Bvalues.target.commit.summary.html%2C%2Bvalues.target.%2A%2C%2Bvalues.%2A%2C%2Bpage%2C%2Bsize",
           "pipelines/?page=1&pagelen=100&sort=-created_on&fields=-values.%2A%2C%2Bvalues.creator%2C%2Bvalues.trigger",
           "pipelines_config/variables/?page=1&pagelen=100",
-          "refs/branches/master",
-          "refs/branches?pagelen=25&q=name%20%21%3D%20%22master%22%20AND%20name%20~%20%22%22&sort=name&fields=-values.target.%2A%2C%2Bvalues.target.hash",
+          "refs/branches/" .. context["main_branch"],
+          "refs/branches?pagelen=25&q=name%20%21%3D%20%" .. context["main_branch"] .. "%22%20AND%20name%20~%20%22%22&sort=name&fields=-values.target.%2A%2C%2Bvalues.target.hash",
           "refs/tags?pagelen=25&q=name%20~%20%22%22&sort=-target.date&fields=-values.target.%2A%2C%2Bvalues.target.hash",
-          --"src/master/bitbucket-pipelines.yml",
-          "pullrequests?pagelen=25&fields=%2Bvalues.participants%2C-values.description%2C-values.summary&q=state%3D%22OPEN%22%20AND%20queued%3Dfalse&page=1"
+          --"src/" .. context["main_branch"] .. "/bitbucket-pipelines.yml",
+          "pullrequests?pagelen=25&fields=%2Bvalues.participants%2C-values.description%2C-values.summary&q=state%3D%22OPEN%22%20AND%20queued%3Dfalse&page=1",
+          "pullrequests?pagelen=25&fields=%2Bvalues.participants%2C-values.description%2C-values.summary&q=&page=1"
         },
         ["https://bitbucket.org/!api/internal/menu/repository/" .. item_value] = {
           "?fields=%2Brepository.landing_page",
@@ -691,19 +738,22 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           "details?fields=%2Bparent.mainbranch.%2A",
           "tree/" .. context["hash"] .. "/?max_depth=1&no_size=1",
           "tree/" .. context["hash"] .. "/?no_size=1",
-          "tree/master/?no_size=1",
+          "tree/" .. context["main_branch"] .. "/?no_size=1",
           "metadata",
           "srcdir-with-metadata/" .. context["hash"] .. "/",
-          "changesets?fields=%2B%2A.committer.%2A%2C%2B%2A.participants.approved%2C-%2A.participants.%2A&include=master&page=1&pagelen=25&truncate_to=1024",
-          "changesets?fields=%2B%2A.committer.%2A%2C%2B%2A.participants.approved%2C-%2A.participants.%2A&include=master&ctx=6a3b694c029da5ef562d4f49d3ce98cd&page=2&pagelen=25&truncate_to=1024",
-          "branch-list/?branch=master&fields=-values.target.author.user.account_id%2C%2Bvalues.pullrequest.state%2C%2Bvalues.pullrequest.created_on%2C%2Bvalues.pullrequests.state%2C%2Bvalues.pullrequests.created_on%2C%2Bvalues.pullrequests.closed_on%2C-values.statuses%2C%2Bvalues.default_merge_strategy%2C%2Bvalues.merge_strategies%2C%2Bvalues.sync_strategies",
-          "branch-list/?q=name%20%21%3D%20%22master%22%20AND%20%28ahead%20%3E%200%20OR%20ahead%20%3D%20null%29&pagelen=25&fields=-values.target.author.user.account_id%2C%2Bvalues.pullrequest.state%2C%2Bvalues.pullrequest.created_on%2C%2Bvalues.pullrequests.state%2C%2Bvalues.pullrequests.created_on%2C%2Bvalues.pullrequests.closed_on%2C-values.statuses%2C%2Bvalues.default_merge_strategy%2C%2Bvalues.merge_strategies%2C%2Bvalues.sync_strategies",
+          "changesets?fields=%2B%2A.committer.%2A%2C%2B%2A.participants.approved%2C-%2A.participants.%2A&include=" .. context["main_branch"] .. "&page=1&pagelen=25&truncate_to=1024",
+          "branch-list/?branch=" .. context["main_branch"] .. "&fields=-values.target.author.user.account_id%2C%2Bvalues.pullrequest.state%2C%2Bvalues.pullrequest.created_on%2C%2Bvalues.pullrequests.state%2C%2Bvalues.pullrequests.created_on%2C%2Bvalues.pullrequests.closed_on%2C-values.statuses%2C%2Bvalues.default_merge_strategy%2C%2Bvalues.merge_strategies%2C%2Bvalues.sync_strategies",
+          "branch-list/?q=name%20%21%3D%20%" .. context["main_branch"] .. "%22%20AND%20%28ahead%20%3E%200%20OR%20ahead%20%3D%20null%29&pagelen=25&fields=-values.target.author.user.account_id%2C%2Bvalues.pullrequest.state%2C%2Bvalues.pullrequest.created_on%2C%2Bvalues.pullrequests.state%2C%2Bvalues.pullrequests.created_on%2C%2Bvalues.pullrequests.closed_on%2C-values.statuses%2C%2Bvalues.default_merge_strategy%2C%2Bvalues.merge_strategies%2C%2Bvalues.sync_strategies",
           "pr-authors/?pr_status=open&pr_status=draft",
           --"branch-restrictions/group-by-branch/",
           "environment-dashboard?includeHidden=false&fields=%2Bgroupings.environment_summaries.latest_successful_deployment.deployable.commit.%2A.%2A%2C-groupings.environment_summaries.latest_successful_deployment.deployable.commit.parents%2C-groupings.environment_summaries.latest_successful_deployment.deployable.commit.links.patch%2C-groupings.environment_summaries.latest_successful_deployment.deployable.commit.properties%2C%2Bgroupings.environment_summaries.latest_successful_deployment.step.run_number%2C%2Bgroupings.environment_summaries.latest_successful_deployment.step.state.%2A.%2A%2C%2Bgroupings.environment_summaries.latest_successful_deployment.step.trigger.%2A.%2A%2C%2Bgroupings.environment_summaries.latest_deployment.deployable.commit.%2A.%2A%2C-groupings.environment_summaries.latest_deployment.deployable.commit.parents%2C-groupings.environment_summaries.latest_deployment.deployable.commit.links.patch%2C-groupings.environment_summaries.latest_deployment.deployable.commit.properties%2C%2Bgroupings.environment_summaries.latest_deployment.step.run_number%2C%2Bgroupings.environment_summaries.latest_deployment.step.state.%2A.%2A%2C%2Bgroupings.environment_summaries.latest_deployment.step.trigger.%2A.%2A%2C%2Bgroupings.environment_summaries.next_promotion.environment.name",
           --"jira/sites",
           --"jira/projects?page=1",
           --"packages/containers?pagelen=20",
+          "details?fields=%2Bparent.mainbranch.%2A",
+          "metadata",
+          "media-authorization/",
+          "commits/statuses/?fields=%2B%2A.commit_status.updated_on%2C%2B%2A.commit_status.description%2C%2B%2A.commit_status.name",
         }
       }) do
         for _, path in pairs(paths) do
@@ -720,9 +770,18 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       )
     end
     end
-    if string.match(url, "%.git/info/refs%?service=git%-upload%-pack$") then
+    if string.match(url, "^https?://api%.bitbucket%.org/2%.0/repositories/[^/]+/[^/]+$") then
+      if json["has_wiki"] then
+        check("https://bitbucket.org/" .. item_value .. "/wiki")
+      end
+      if json["has_issues"] then
+        check("https://bitbucket.org/" .. item_value .. "/issues")
+        check("https://bitbucket.org/" .. item_value .. "/issues?status=new&status=open")
+      end
+    end
+    if string.match(url, "%.git/?[^/]*/info/refs%?service=git%-upload%-pack$") then
       check_post(
-        string.match(url, "^(.-%.git)/info") .. "/git-upload-pack",
+        string.match(url, "^(.-%.git/?[^/]*)/info") .. "/git-upload-pack",
         git_line("command=ls-refs\n")
         .. git_line("agent=git/2.30.2\n")
         .. git_line("object-format=sha1")
@@ -786,6 +845,72 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         .. git_line("done")
         .. "0000"
       check_post(url, post)
+    end
+    if string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/wiki") then
+      local page = string.match(url, "^(https?://bitbucket%.org/[^/]+/[^/]+/wiki[^%?&;]*)")
+      if page then
+        if string.match(page, "/wiki$") then
+          page = pages .. "/"
+        end
+        check_iframe(page)
+      end
+      if string.match(url, "[%?&]iframe=true") then
+        local fetch_url = string.match(html, 'data-fetch-url="([^"]+%.git[^"]*)"')
+        if fetch_url then
+          check(fetch_url .. "/info/refs?service=git-upload-pack")
+        end
+      end
+    end
+    if string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/pull%-requests/[0-9]+") then
+      local num = string.match(url, "/pull%-requests/([0-9]+)")
+      --[[for i = 1 , tonumber(num) do
+        check("https://api.bitbucket.org/2.0/repositories/" .. item_value .. "/pullrequests/" .. tostring(i))
+      end]]
+      check("https://api.bitbucket.org/2.0/repositories/" .. item_value .. "/pullrequests/" .. num)
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/merge-restrictions")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/comments/?fields=%2Bvalues.user.account_status%2C%2Bvalues.resolution.%2A%2C%2Bvalues.inline.%2A&pagelen=100&sort=id")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/likes")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/activity?pagelen=50&fields=%2Bvalues.attachment.uuid%2C%2Bvalues.update.source.commit.parents.hash")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/branch-sync-info")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/watch")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/attachments?fields=values.uuid%2Cvalues.metadata%2Cvalues.description%2Cvalues.created_on%2Cvalues.uploaded_by&pagelen=100")
+      check("https://bitbucket.org/!api/internal/repositories/" .. item_value .. "/pullrequests/" .. num .. "/post-build-merge")
+      check("https://bitbucket.org/" .. item_value .. "/pull-requests/" .. num .. "/diff")
+      check("https://bitbucket.org/" .. item_value .. "/pull-requests/" .. num .. "/commits")
+      check("https://bitbucket.org/!api/2.0/repositories/" .. item_value .. "/pullrequests/" .. num .. "/tasks?pagelen=1000")
+      check("https://bitbucket.org/!api/2.0/repositories/" .. item_value .. "/pullrequests/" .. num .. "/commits?truncate_to=1024&fields=%2B%2A.committer.%2A%2C%2B%2A.participants.approved%2C-%2A.participants.%2A&pagelen=25")
+      check("https://bitbucket.org/!api/2.0/repositories/" .. item_value .. "/pullrequests/" .. num .. "?fields=%2Bclosed_on%2C%2Bmerge_commit.message%2C%2Bmerge_commit.summary%2C%2Bmerge_commit.author.%2A%2C%2Bmerge_commit.date%2C%2Blatest_excluded_files_version%2C%2Bdiff_type%2C%2Bmerge_in_progress%2C%2Bqueue_in_progress%2C%2Bdestination.branch.default_merge_strategy%2C%2Bdestination.branch.merge_strategies%2C%2Bdestination.commit.links.%2A%2C%2Bdestination.repository.%2A%2C-destination.repository.landing_page%2C%2Bsource.commit.links.%2A%2C%2Bsource.repository.%2A%2C-source.repository.landing_page%2C-summary")
+    end
+    if string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/issues/[0-9]") then
+      local num = string.match(url, "/issues/([0-9]+)")
+      --[[for i = 1 , tonumber(num) do
+        check("https://api.bitbucket.org/2.0/repositories/" .. item_value .. "/issues/" .. tostring(i))
+      end]]
+      check("https://api.bitbucket.org/2.0/repositories/" .. item_value .. "/issues/" .. num)
+    end
+    if string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/issues")
+      or string.match(url, "^https?://bitbucket%.org/[^/]+/[^/]+/downloads") then
+      check_iframe(url)
+    end
+    if string.match(url, "^https?://bitbucket%.org/!api/2%.0/repositories/[^/]+/[^/]+/pullrequests%?") then
+      local page = string.match(url, "[%?&]page=([0-9]+)")
+      if page then
+        local q = string.match(url, "[%?&]q=([^&]*)")
+        if q then
+          local state = ({
+            [""] = "ALL",
+            ["state%3D%22OPEN%22%20AND%20queued%3Dfalse"] = "OPEN%2BDRAFT",
+          })[q]
+          if state then
+            check("https://bitbucket.org/" .. item_value .. "/pull-requests/?state=" .. state .. "&page=" .. page)
+            if state == "OPEN%2BDRAFT" then
+              check("https://bitbucket.org/" .. item_value .. "/pull-requests/?page=" .. page)
+            end
+          end
+        else
+          check("https://bitbucket.org/" .. item_value .. "/pull-requests/?page=" .. page)
+        end
+      end
     end
 
     -- workspace
@@ -854,8 +979,10 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
     end
     if string.match(url, "^https?://[^/]+/[^/]+/workspace/repositories/$") then
+      local newurl = "https://api.atlassian.com/flags/api/v2/frontend/experimentValues"
+      ids[newurl] = true
       check_post(
-        "https://api.atlassian.com/flags/api/v2/frontend/experimentValues",
+        newurl,
         cjson.encode({
           ["identifiers"] = {
             ["bitbucketWorkspaceId"] = context["uuid"]
@@ -906,10 +1033,18 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       return urls
     end
     for newurl in string.gmatch(string.gsub(html, "&[qQ][uU][oO][tT];", '"'), '([^"]+)') do
-      checknewurl(newurl)
+      if json then
+        check(newurl)
+      else
+        checknewurl(newurl)
+      end
     end
     for newurl in string.gmatch(string.gsub(html, "&#039;", "'"), "([^']+)") do
-      checknewurl(newurl)
+      if json then
+        check(newurl)
+      else
+        checknewurl(newurl)
+      end
     end
     for newurl in string.gmatch(html, "[^%-]href='([^']+)'") do
       checknewshorturl(newurl)
@@ -922,8 +1057,12 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     end
     html = string.gsub(html, "&gt;", ">")
     html = string.gsub(html, "&lt;", "<")
-    for newurl in string.gmatch(html, ">%s*([^<%s]+)") do
-      checknewurl(newurl)
+    for newurl in string.gmatch(html, ">%s*([^<]-)%s*<") do
+      if json then
+        check(newurl)
+      else
+        checknewurl(newurl)
+      end
     end
   end
 
@@ -943,13 +1082,16 @@ wget.callbacks.write_to_warc = function(url, http_stat)
   is_initial_url = false
   if http_stat["statcode"] ~= 200
     and http_stat["statcode"] ~= 301
+    and http_stat["statcode"] ~= 400
+    and http_stat["statcode"] ~= 405
+    and http_stat["statcode"] ~= 302
     and (
       http_stat["statcode"] ~= 404
-      or (
-        not string.match(url["url"], "^https?://bitbucket%.org/%%7B[0-9a-f%-]+%%7D/$")
-      )
-    )
-    and http_stat["statcode"] ~= 302 then
+      or string.match(url["url"], "^https?://api%.bitbucket%.org/")
+      or string.match(url["url"], "^https?://bitbucket%.org/!api/")
+      or string.match(url["url"], "^https?://bitbucket%.com/!api/")
+      or string.match(url["url"], "^https?://bitbucket%.org/gateway/api/")
+    ) then
     retry_url = true
     return false
   end
