@@ -641,7 +641,8 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 
   if allowed(url)
     and status_code < 300
-    and item_type ~= "asset" then
+    and not string.match(url, "/get/[0-9a-f]+%.zip$")
+    and not string.match(url, "/[0-9]+/attachments/[^%?&/]+%.[^%?&/]+$") then
     html = read_file(file)
     if string.match(url, "^https?://api%.bitbucket%.org/2%.0/")
       or string.match(url, "^https?://api%.bitbucket%.org/!api/")
