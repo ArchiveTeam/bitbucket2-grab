@@ -269,6 +269,15 @@ allowed = function(url, parenturl)
     end
   end
 
+  if item_type == "workspace"
+    and context["is_private"]
+    and (
+      string.match(url, "^https?://bitbucket%.org/([^/]+)/$") == item_value
+      or string.match(url, "^https?://bitbucket%.org/([^/]+)/workspace/[a-z%-]+/$") == item_value
+    ) then
+    return false
+  end
+
   for _, pattern in pairs({
     "([%-%._0-9a-zA-Z%%]+)",
     "([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)",
@@ -427,7 +436,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         headers["X-Client-Name"] = "feature-gate-js-client"
         headers["X-Client-Version"] = "5.3.0"
       end
---print('queueing', url_, cjson.encode(headers), post_data)
+--print('queueing', url_)
       if post_data then
         table.insert(urls, {
           url=url_,
@@ -807,6 +816,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       context["uuid"] = string.match(json["uuid"], "^{(.+)}$")
       ids[context["uuid"]] = true
       assert(context["uuid"])
+      context["is_private"] = json["is_private"]
       check("https://api.bitbucket.org/2.0/workspaces/" .. json["uuid"])
       check("https://api.bitbucket.org/2.0/workspaces/" .. item_value .. "/projects")
       check("https://api.bitbucket.org/2.0/repositories/" .. item_value)
@@ -814,6 +824,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       if item_type == "workspace" then
         check(json["links"]["avatar"]["href"])
         check("https://bitbucket.org/workspaces/" .. item_value .. "/avatar/")
+        if not context["is_private"] then
+          check("https://bitbucket.org/" .. item_value .. "/")
+          check("https://bitbucket.org/" .. item_value .. "/workspace/overview")
+          check("https://bitbucket.org/" .. item_value .. "/workspace/repositories/")
+          check("https://bitbucket.org/" .. item_value .. "/workspace/projects/")
+          check("https://bitbucket.org/" .. item_value .. "/workspace/pull-requests/")
+        end
       end
       return urls
     end
@@ -835,13 +852,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           end
         end
       end
-    end
-    if item_type == "workspace" then
-      check("https://bitbucket.org/" .. item_value .. "/")
-      check("https://bitbucket.org/" .. item_value .. "/workspace/overview")
-      check("https://bitbucket.org/" .. item_value .. "/workspace/repositories/")
-      check("https://bitbucket.org/" .. item_value .. "/workspace/projects/")
-      check("https://bitbucket.org/" .. item_value .. "/workspace/pull-requests/")
     end
     if string.match(url, "^https?://[^/]+/[^/]+/workspace/repositories/$") then
       check_post(
@@ -933,6 +943,12 @@ wget.callbacks.write_to_warc = function(url, http_stat)
   is_initial_url = false
   if http_stat["statcode"] ~= 200
     and http_stat["statcode"] ~= 301
+    and (
+      http_stat["statcode"] ~= 404
+      or (
+        not string.match(url["url"], "^https?://bitbucket%.org/%%7B[0-9a-f%-]+%%7D/$")
+      )
+    )
     and http_stat["statcode"] ~= 302 then
     retry_url = true
     return false
