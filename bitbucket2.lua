@@ -83,6 +83,11 @@ processed = function(url)
 end
 
 discover_item = function(target, item)
+  if target == discovered_items
+    and item_type == "repo"
+    and string.match(item, "^workspace:") then
+    target = discovered_stash_items
+  end
   if not target[item] then
 --print("discovered", target, item)
     target[item] = true
