@@ -425,9 +425,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     if not processed(url_ .. tostring(post_data))
       and allowed(url_, origurl) then
       local headers = {}
-      if string.match(url_, "%.git/info/refs%?service=git%-upload%-pack$") then
+      if string.match(url_, "%.git/?[^/]*/info/refs%?service=git%-upload%-pack$") then
         headers["Accept"] = "*/*"
-      elseif string.match(url_, "%.git/git%-upload%-pack$") then
+      elseif string.match(url_, "%.git/?[^/]*/git%-upload%-pack$") then
         headers["Accept"] = "application/x-git-upload-pack-result"
         headers["Content-Type"] = "application/x-git-upload-pack-request"
       end
@@ -801,7 +801,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         .. "0000"
       )
     end
-    if string.match(url, "%.git/git%-upload%-pack$")
+    if string.match(url, "%.git/?[^/]*/git%-upload%-pack$")
       and not string.match(html, "^000dpackfile") then
       local post =
         git_line("command=fetch\n")
@@ -1102,7 +1102,8 @@ wget.callbacks.write_to_warc = function(url, http_stat)
     and (
       http_stat["statcode"] ~= 404
       or is_api_url(url["url"])
-      or string.match(url["url"], "%.git")
+      or string.match(url["url"], "%.git/?[^/]*/info/refs%?service=git%-upload%-pack$")
+      or string.match(url["url"], "%.git/?[^/]*/git%-upload%-pack$")
     ) then
     retry_url = true
     return false
