@@ -14,6 +14,7 @@ local item_value = nil
 local item_user = nil
 
 local workspace_type = cjson.decode(os.getenv("workspace_type"))
+local wget_at_location = os.getenv("wget_at_location")
 
 local url_count = 0
 local tries = 0
@@ -1075,6 +1076,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   return urls
 end
 
+local function is_api_url(url)
+  return string.match(url, "^https?://api%.bitbucket%.org/")
+    or string.match(url, "^https?://bitbucket%.org/!api/")
+    or string.match(url, "^https?://bitbucket%.com/!api/")
+    or string.match(url, "^https?://bitbucket%.org/gateway/api/")
+end
+
 wget.callbacks.write_to_warc = function(url, http_stat)
   status_code = http_stat["statcode"]
   set_item(url["url"])
@@ -1093,10 +1101,8 @@ wget.callbacks.write_to_warc = function(url, http_stat)
     and http_stat["statcode"] ~= 302
     and (
       http_stat["statcode"] ~= 404
-      or string.match(url["url"], "^https?://api%.bitbucket%.org/")
-      or string.match(url["url"], "^https?://bitbucket%.org/!api/")
-      or string.match(url["url"], "^https?://bitbucket%.com/!api/")
-      or string.match(url["url"], "^https?://bitbucket%.org/gateway/api/")
+      or is_api_url(url["url"])
+      or string.match(url["url"], "%.git")
     ) then
     retry_url = true
     return false
@@ -1113,6 +1119,52 @@ wget.callbacks.write_to_warc = function(url, http_stat)
   retry_url = false
   tries = 0
   return true
+end
+
+local function check_api_404(url)
+  local api_main =
+    string.match(url, "^(https?://api%.bitbucket%.[co][or][mg]/2%.0/)")
+    or string.match(url, "^(https?://bitbucket%.[co][or][mg]/!api/2%.0/)")
+    or string.match(url, "^(https?://bitbucket%.[co][or][mg]/!api/internal/)")
+  local check_url = nil
+  if item_type == "repo" then
+    check_url = api_main .. "repositories/" .. item_value
+  elseif string.match(item_type, "^workspace") then
+    check_url = api_main .. "workspaces/" .. item_value
+  else
+    error("No testable item.")
+  end
+  if string.match(url, "^https?://[^/]+/!api/internal/") then
+    check_url = check_url .. "/metadata"
+  end
+  local command = wget_at_location
+    .. " -U \"Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0\""
+    .. " --host-lookups dns"
+    .. " --hosts-file /dev/null"
+    .. " --resolvconf-file /dev/null"
+    .. " --dns-servers \"9.9.9.10,149.112.112.10,2620:fe::10,2620:fe::fe:10\""
+    .. " --output-document -"
+    .. " --max-redirect 0"
+    .. " --save-headers"
+    .. " --no-check-certificate"
+    .. " --no-hsts"
+    .. " --timeout 30"
+    .. " --tries 1"
+  if string.match(url, "^https?://[^/]+/!api/") then
+    command = command
+      .. " --header \"Accept: application/json\""
+      .. " --header \"Content-Type: application/json\""
+      .. " --header \"X-Bitbucket-Frontend: frontbucket\""
+      .. " --header \"X-Requested-With: XMLHttpRequest\""
+  end
+  command = command .. " \"" .. check_url .. "\""
+  local f = io.popen(command .. " 2>/dev/null")
+  local output = f:read("*all")
+  f:close()
+  local code = string.match(output, "^HTTP/1%.1 ([0-9]+)")
+  io.stdout:write("\nGot status code " .. code .. " in API test for " .. check_url .. ".\n")
+  io.stdout:flush()
+  return code == "200"
 end
 
 wget.callbacks.httploop_result = function(url, err, http_stat)
@@ -1139,10 +1191,25 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
     return wget.actions.EXIT
   end
 
+  if tries == 0 and is_api_url(url["url"]) then
+    context["404check"] = {[url["url"]] = 0}
+  end
+
   if status_code == 0 or retry_url then
     io.stdout:write("Server returned bad response. ")
     io.stdout:flush()
     tries = tries + 1
+    if is_api_url(url["url"])
+      and context["404check"]
+      and check_api_404(url["url"]) then
+      context["404check"][url["url"]] = context["404check"][url["url"]] + 1
+      if tries == 3 and tries == context["404check"][url["url"]] then
+        tries = 0
+        io.stdout:write("Moving on from this 404.\n")
+        io.stdout:flush()
+        return wget.actions.EXIT
+      end
+    end
     local maxtries = 5
     if status_code == 401 or status_code == 403 then
       tries = maxtries + 1

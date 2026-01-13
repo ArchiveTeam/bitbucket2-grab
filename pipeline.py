@@ -77,7 +77,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260112.01'
+VERSION = '20260113.01'
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0'
 TRACKER_ID = 'bitbucket2'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -284,6 +284,7 @@ class WgetArgs(object):
                 raise Exception('Unknown item')
 
         item['workspace_type'] = json.dumps(workspace_type)
+        item['wget_at_location'] = WGET_AT
 
         item['item_name_newline'] = item['item_name'].replace('\0', '\n')
 
@@ -325,7 +326,8 @@ pipeline = Pipeline(
             'item_names': ItemValue('item_name_newline'),
             'warc_file_base': ItemValue('warc_file_base'),
             'concurrency': ItemValue('concurrency'),
-            'workspace_type': ItemValue('workspace_type')
+            'workspace_type': ItemValue('workspace_type'),
+            'wget_at_location': ItemValue('wget_at_location')
         }
     ),
     SetBadUrls(),
