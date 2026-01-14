@@ -481,7 +481,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
       end
       if item_type == "workspace" and post_data then
         headers["Content-Type"] = "application/json"
-        --headers["X-API-KEY"] = "e68da679-ff2b-4bae-913d-22d58892baa8"
+        headers["X-API-KEY"] = "e68da679-ff2b-4bae-913d-22d58892baa8"
         headers["X-Client-Name"] = "feature-gate-js-client"
         headers["X-Client-Version"] = "5.3.0"
       end
@@ -1114,10 +1114,13 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
 end
 
 local function is_api_url(url)
-  return string.match(url, "^https?://api%.bitbucket%.org/")
-    or string.match(url, "^https?://bitbucket%.org/!api/")
-    or string.match(url, "^https?://bitbucket%.com/!api/")
-    or string.match(url, "^https?://bitbucket%.org/gateway/api/")
+  return url ~= "https://api.atlassian.com/flags/api/v2/frontend/experimentValues"
+    and (
+      string.match(url, "^https?://api%.bitbucket%.org/")
+      or string.match(url, "^https?://bitbucket%.org/!api/")
+      or string.match(url, "^https?://bitbucket%.com/!api/")
+      or string.match(url, "^https?://bitbucket%.org/gateway/api/")
+    )
 end
 
 wget.callbacks.write_to_warc = function(url, http_stat)
@@ -1166,15 +1169,21 @@ local function check_api_404(url)
     or string.match(url, "^(https?://bitbucket%.[co][or][mg]/!api/internal/)")
   local check_url = nil
   local sampled_repo = existing_repos[math.random(#existing_repos)]
+  local is_internal = string.match(url, "^https?://[^/]+/!api/internal/")
   if item_type == "repo" then
     check_url = api_main .. "repositories/" .. sampled_repo
+    if is_internal then
+      check_url = check_url .. "/metadata"
+    end
   elseif string.match(item_type, "^workspace") then
-    check_url = api_main .. "workspaces/" .. sampled_repo
+    sampled_repo = string.match(sampled_repo, "^([^/]+)")
+    if is_internal then
+      check_url = api_main .. "menu/workspace/" .. sampled_repo
+    else
+      check_url = api_main .. "workspaces/" .. sampled_repo
+    end
   else
     error("No testable item.")
-  end
-  if string.match(url, "^https?://[^/]+/!api/internal/") then
-    check_url = check_url .. "/metadata"
   end
   local command = wget_at_location
     .. " -U \"Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0\""
@@ -1250,9 +1259,6 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       end
     end
     local maxtries = 5
-    if status_code == 401 or status_code == 403 then
-      tries = maxtries + 1
-    end
     if tries > maxtries then
       io.stdout:write(" Skipping.\n")
       io.stdout:flush()
