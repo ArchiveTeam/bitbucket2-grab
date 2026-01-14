@@ -48,6 +48,14 @@ local disco_patterns = {
   ["^https?://bitbucket%.org/([%-%._0-9a-zA-Z%%]+/[%-%._0-9a-zA-Z%%]+)"] = "repo"
 }
 
+local existing_repos = {}
+local f = io.open("existing_repos.txt")
+for s in string.gmatch(f:read("*all"), "([^\n]+)") do
+  table.insert(existing_repos, s)
+end
+f:close()
+math.randomseed(os.time())
+
 abort_item = function(item)
   abortgrab = true
   --killgrab = true
@@ -91,7 +99,7 @@ discover_item = function(target, item)
     target = discovered_stash_items
   end
   if not target[item] then
-print("discovered", target, item)
+--print("discovered", target, item)
     target[item] = true
     return true
   end
@@ -1157,10 +1165,11 @@ local function check_api_404(url)
     or string.match(url, "^(https?://bitbucket%.[co][or][mg]/!api/2%.0/)")
     or string.match(url, "^(https?://bitbucket%.[co][or][mg]/!api/internal/)")
   local check_url = nil
+  local sampled_repo = existing_repos[math.random(#existing_repos)]
   if item_type == "repo" then
-    check_url = api_main .. "repositories/" .. item_value
+    check_url = api_main .. "repositories/" .. sampled_repo
   elseif string.match(item_type, "^workspace") then
-    check_url = api_main .. "workspaces/" .. item_value
+    check_url = api_main .. "workspaces/" .. sampled_repo
   else
     error("No testable item.")
   end

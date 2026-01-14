@@ -77,7 +77,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20260114.01'
+VERSION = '20260114.02'
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0'
 TRACKER_ID = 'bitbucket2'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -238,8 +238,8 @@ class WgetArgs(object):
             '--recursive', '--level=inf',
             '--no-parent',
             '--page-requisites',
-            '--timeout', '30',
-            '--connect-timeout', '1',
+            '--timeout', '60',
+            '--connect-timeout', '20',
             '--tries', 'inf',
             '--domains', 'bitbucket.com',
             '--span-hosts',
