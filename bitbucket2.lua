@@ -37,7 +37,8 @@ local is_initial_url = true
 local item_patterns = {
   ["^https?://api%.bitbucket%.org/2%.0/repositories%?after=([0-9][0-9][0-9][0-9]%-[0-9][0-9]%-[0-9][0-9]T[0-9][0-9]%%3A[03])"] = "repo-disco",
   ["^https?://api%.bitbucket%.org/2%.0/workspaces/([%-%._0-9a-zA-Z%%]+)$"] = "workspace",
-  ["^https?://api%.bitbucket%.org/2%.0/repositories/([^/]+/[^/%?&]+)$"] = "repo"
+  ["^https?://api%.bitbucket%.org/2%.0/repositories/([^/]+/[^/%?&]+)$"] = "repo",
+  ["^https?://bitbucket%.org/([^/]+/[^/]+/get/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+%.zip)$"] = "zip"
 }
 
 local disco_patterns = {
@@ -90,7 +91,7 @@ discover_item = function(target, item)
     target = discovered_stash_items
   end
   if not target[item] then
---print("discovered", target, item)
+print("discovered", target, item)
     target[item] = true
     return true
   end
@@ -146,6 +147,11 @@ set_item = function(url)
       local user, name = string.match(new_item_value, "^([^/]+)/([^/]+)$")
       newcontext["user"] = user
       newcontext["name"] = name
+      newcontext["zips"] = {}
+    elseif new_item_type == "zip"
+      and item_type == "repo"
+      and context["zips"][string.match(new_item_value, "/get/([0-9a-f]+)%.zip$")] then
+      return nil
     end
     if new_item_name ~= item_name then
       if item_name then
@@ -250,6 +256,15 @@ allowed = function(url, parenturl)
   for _, patterns in pairs({item_patterns, disco_patterns}) do
     for pattern, type_ in pairs(patterns) do
       match = string.match(url, pattern)
+      if match and type_ == "zip" and item_type == "repo" then
+        for zip_id, _ in pairs(context["zips"]) do
+          if string.match(match, "/get/" .. zip_id .. "[0-9a-f]+%.zip$") then
+            print("Skipping discovered " .. type_ .. " " .. match .. ".")
+            match = nil
+            break
+          end
+        end
+      end
       if match and not string.match(match, "%.git$") then
         local new_item = type_ .. ":" .. match
         if new_item ~= item_name then
@@ -471,6 +486,19 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
           method="POST"
         })
       else
+        if item_type == "repo" then
+          local zip_id = string.match(url_, "/get/([0-9a-f]+)%.zip$")
+          if zip_id then
+            context["zips"][zip_id] = true
+            for new_item, _ in pairs(discovered_items) do
+              if string.match(new_item, "^zip:.-/get/" .. zip_id .. "[0-9a-f]+%.zip$") then
+                print("Queuing extra " .. new_item .. ".")
+                check("https://bitbucket.org/" .. string.match(new_item, "^zip:(.+)$"))
+                discovered_items[new_item] = nil
+              end
+            end
+          end
+        end
         table.insert(urls, {
           url=url_,
           headers=headers
@@ -648,6 +676,7 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
   if allowed(url)
     and status_code < 300
     and not string.match(url, "/get/[0-9a-f]+%.zip$")
+    and item_type ~= "zip"
     and not string.match(url, "/[0-9]+/attachments/[^%?&/]+%.[^%?&/]+$") then
     html = read_file(file)
     if string.match(url, "^https?://api%.bitbucket%.org/2%.0/")
