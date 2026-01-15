@@ -700,7 +700,9 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
         if not string.match(url, "/snippets")
           and not string.match(url, "/commits")
           and not string.match(url, "/activity")
-          and not string.match(url, "/changesets") then
+          and not string.match(url, "/changesets")
+          and not string.match(url, "/attachments")
+          and not string.match(url, "/likes") then
           local count = get_count(json["values"])
           assert(
             count == json["size"]
