@@ -1211,7 +1211,7 @@ local function check_api_404(url)
   local f = io.popen(command .. " 2>/dev/null")
   local output = f:read("*all")
   f:close()
-  local status = string.match(output, "HTTP/%d?%.?%d?%s*(%d+)")
+  local code = string.match(output, "HTTP/%d?%.?%d?%s*(%d+)")
   io.stdout:write("\nGot status code " .. code .. " in API test for " .. check_url .. ".\n")
   io.stdout:flush()
   return code == "200"
